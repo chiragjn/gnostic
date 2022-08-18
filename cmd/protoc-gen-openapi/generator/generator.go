@@ -23,15 +23,15 @@ import (
 	"sort"
 	"strings"
 
+	databricks "github.com/google/gnostic/cmd/protoc-gen-openapi/generator/databricks"
+	wk "github.com/google/gnostic/cmd/protoc-gen-openapi/generator/wellknown"
+	v3 "github.com/google/gnostic/openapiv3"
 	"google.golang.org/genproto/googleapis/api/annotations"
 	status_pb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	any_pb "google.golang.org/protobuf/types/known/anypb"
-
-	wk "github.com/google/gnostic/cmd/protoc-gen-openapi/generator/wellknown"
-	v3 "github.com/google/gnostic/openapiv3"
 )
 
 type Configuration struct {
@@ -652,52 +652,100 @@ func (g *OpenAPIv3Generator) addPathsToDocumentV3(d *v3.Document, services []*pr
 			outputMessage := method.Output
 			operationID := service.GoName + "_" + method.GoName
 
-			var path string
-			var methodName string
-			var body string
+			// var path string
+			// var methodName string
+			// var body string
 
-			extHTTP := proto.GetExtension(method.Desc.Options(), annotations.E_Http)
-			if extHTTP != nil && extHTTP != annotations.E_Http.InterfaceOf(annotations.E_Http.Zero()) {
-				annotationsCount++
+			// extHTTP := proto.GetExtension(method.Desc.Options(), annotations.E_Http)
+			// if extHTTP != nil && extHTTP != annotations.E_Http.InterfaceOf(annotations.E_Http.Zero()) {
+			// 	annotationsCount++
 
-				rule := extHTTP.(*annotations.HttpRule)
-				body = rule.Body
-				switch pattern := rule.Pattern.(type) {
-				case *annotations.HttpRule_Get:
-					path = pattern.Get
-					methodName = "GET"
-				case *annotations.HttpRule_Post:
-					path = pattern.Post
-					methodName = "POST"
-				case *annotations.HttpRule_Put:
-					path = pattern.Put
-					methodName = "PUT"
-				case *annotations.HttpRule_Delete:
-					path = pattern.Delete
-					methodName = "DELETE"
-				case *annotations.HttpRule_Patch:
-					path = pattern.Patch
-					methodName = "PATCH"
-				case *annotations.HttpRule_Custom:
-					path = "custom-unsupported"
-				default:
-					path = "unknown-unsupported"
+			// 	rule := extHTTP.(*annotations.HttpRule)
+			// 	body = rule.Body
+			// 	switch pattern := rule.Pattern.(type) {
+			// 	case *annotations.HttpRule_Get:
+			// 		path = pattern.Get
+			// 		methodName = "GET"
+			// 	case *annotations.HttpRule_Post:
+			// 		path = pattern.Post
+			// 		methodName = "POST"
+			// 	case *annotations.HttpRule_Put:
+			// 		path = pattern.Put
+			// 		methodName = "PUT"
+			// 	case *annotations.HttpRule_Delete:
+			// 		path = pattern.Delete
+			// 		methodName = "DELETE"
+			// 	case *annotations.HttpRule_Patch:
+			// 		path = pattern.Patch
+			// 		methodName = "PATCH"
+			// 	case *annotations.HttpRule_Custom:
+			// 		path = "custom-unsupported"
+			// 	default:
+			// 		path = "unknown-unsupported"
+			// 	}
+			// }
+
+			// if methodName != "" {
+			// 	defaultHost := proto.GetExtension(service.Desc.Options(), annotations.E_DefaultHost).(string)
+
+			// 	op, path2 := g.buildOperationV3(
+			// 		d, operationID, service.GoName, comment, defaultHost, path, body, inputMessage, outputMessage)
+
+			// 	// Merge any `Operation` annotations with the current
+			// 	extOperation := proto.GetExtension(method.Desc.Options(), v3.E_Operation)
+			// 	if extOperation != nil {
+			// 		proto.Merge(op, extOperation.(*v3.Operation))
+			// 	}
+
+			// 	g.addOperationToDocumentV3(d, op, path2, methodName)
+			// }
+
+			extRPC := proto.GetExtension(method.Desc.Options(), databricks.E_Rpc)
+			if extRPC != nil && extRPC != databricks.E_Rpc.InterfaceOf(databricks.E_Rpc.Zero()) {
+				rpcOptions := extRPC.(*databricks.DatabricksRpcOptions)
+				if rpcOptions.RpcDocTitle != nil {
+					comment = *rpcOptions.RpcDocTitle
+				} else {
+					comment = "Description Unavailable"
 				}
-			}
 
-			if methodName != "" {
-				defaultHost := proto.GetExtension(service.Desc.Options(), annotations.E_DefaultHost).(string)
-
-				op, path2 := g.buildOperationV3(
-					d, operationID, service.GoName, comment, defaultHost, path, body, inputMessage, outputMessage)
-
-				// Merge any `Operation` annotations with the current
-				extOperation := proto.GetExtension(method.Desc.Options(), v3.E_Operation)
-				if extOperation != nil {
-					proto.Merge(op, extOperation.(*v3.Operation))
+				if rpcOptions.GetVisibility() != databricks.Visibility_PUBLIC {
+					continue
 				}
 
-				g.addOperationToDocumentV3(d, op, path2, methodName)
+				for _, endpoint := range rpcOptions.GetEndpoints() {
+					if endpoint.Path == nil || endpoint.Method == nil {
+						continue
+					}
+					var methodName string
+					var path string = *endpoint.Path
+					var body string = "*"
+					methodNameTemp := *endpoint.Method
+					switch methodNameTemp {
+					case "GET", "POST", "PUT", "DELETE", "PATCH":
+						methodName = methodNameTemp
+					default:
+						path = ""
+						body = ""
+					}
+
+					annotationsCount++
+
+					if methodName != "" {
+						defaultHost := proto.GetExtension(service.Desc.Options(), annotations.E_DefaultHost).(string)
+
+						op, path2 := g.buildOperationV3(
+							d, operationID, service.GoName, comment, defaultHost, path, body, inputMessage, outputMessage)
+
+						// Merge any `Operation` annotations with the current
+						extOperation := proto.GetExtension(method.Desc.Options(), v3.E_Operation)
+						if extOperation != nil {
+							proto.Merge(op, extOperation.(*v3.Operation))
+						}
+
+						g.addOperationToDocumentV3(d, op, path2, methodName)
+					}
+				}
 			}
 		}
 
